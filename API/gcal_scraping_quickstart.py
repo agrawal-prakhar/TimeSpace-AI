@@ -8,19 +8,16 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 # If modifying these scopes, delete the file token.json.
-SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
-
-def main():
-  """Shows basic usage of the Google Calendar API.
-  Prints the start and name of the next 10 events on the user's calendar.
-  """
+def get_service():
   creds = None
   # The file token.json stores the user's access and refresh tokens, and is
   # created automatically when the authorization flow completes for the first
   # time.
   if os.path.exists("token.json"):
     creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+
   # If there are no (valid) credentials available, let the user log in.
   if not creds or not creds.valid:
     if creds and creds.expired and creds.refresh_token:
@@ -36,7 +33,15 @@ def main():
 
   try:
     service = build("calendar", "v3", credentials=creds)
+    return service
+  
+  except HttpError as error:
+    print(f"An error occurred: {error}")
 
+
+def main():
+  
+    service = get_service()
     # Call the Calendar API
     now = datetime.datetime.utcnow().isoformat() + "Z"  # 'Z' indicates UTC time
     print("Getting the upcoming 10 events")
@@ -62,11 +67,7 @@ def main():
       start = event["start"].get("dateTime", event["start"].get("date"))
       print(start, event["summary"])
 
-  except HttpError as error:
-    print(f"An error occurred: {error}")
-
 # Toolbox for special agent use
 
 if __name__ == "__main__":
   main()
-  
