@@ -1,5 +1,11 @@
 API/env
 API/.env
+<<<<<<< Updated upstream
+=======
+API/new_env
+API/credentials.json
+API/token.json
+>>>>>>> Stashed changes
 
 .DS_Store
 
