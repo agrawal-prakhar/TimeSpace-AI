@@ -9,3 +9,11 @@ python-dotenv==1.0.1
 scikit_learn==1.5.2
 semantic_kernel==1.11.0
 transformers==4.41.2
+openai
+pyautogen
+uvicorn
+python-multipart
+google
+datetime
+asyncio
+uuid

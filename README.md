@@ -5,3 +5,5 @@ The required packages needed to run TimeSpace-AI are included in the ***requirem
 They can be installed by using the command:
 
 ``` pip install -r requirements.txt ```
+
+Other packages can be installed using `pip3 install ...` command.
