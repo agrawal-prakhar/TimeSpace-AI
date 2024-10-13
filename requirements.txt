@@ -5,3 +5,7 @@ fastapi
 uvicorn
 scikit-learn
 python-multipart
+google
+datetime
+asyncio
+uuid
