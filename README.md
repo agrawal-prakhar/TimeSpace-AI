@@ -1,7 +1,9 @@
 # TimeSpace-AI
 
-The required packages needed to run MinervAI are included in the ***requirements.txt*** file.
+The required packages needed to run TimeSpace-AI are included in the ***requirements.txt*** file.
 
-The semantic kernel package can be installed using the command `python3 -m pip install semantic-kernel`.
+They can be installed by using the command:
+
+``` pip install -r requirements.txt ```
 
 Other packages can be installed using `pip3 install ...` command.
