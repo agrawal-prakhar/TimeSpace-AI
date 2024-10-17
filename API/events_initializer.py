@@ -1,95 +1,32 @@
 import webbrowser
 import datetime
-
-import gcal_scraping_quickstart as gcal;
-import semantic_kernel as sk 
-
-from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig, pipeline, BitsAndBytesConfig
-import random  # Import random module for generating random numbers
-import time  # Import time module for time-related tasks
-import asyncio
-import webbrowser
-import datetime
-from huggingface_hub import login
-from langchain_huggingface import HuggingFacePipeline
-import semantic_kernel.connectors.ai.hugging_face as sk_hf
-
-import gcal_scraping_quickstart as gcal;
+import gcal_scraping_quickstart as gcal
 import os
+import google.generativeai as genai
 from dotenv import load_dotenv
+import asyncio
+
 
 # Load environment variables from the .env file
 load_dotenv()
 
-# Retrieve Hugging Face token from environment variables
-hf_token = os.getenv('HF_TOKEN')
-login(hf_token)
-model_name = "microsoft/Phi-3.5-mini-instruct"
-    
-bnb_config = BitsAndBytesConfig()
+# Retrieve API keys from environment variables
+API_KEY = os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-model = AutoModelForCausalLM.from_pretrained(model_name,
-                                                 device_map="auto",
-                                                 config=bnb_config,
-                                                 trust_remote_code=True)
+# Configure Gemini API
+genai.configure(api_key=GEMINI_API_KEY)
 
-gen_cfg = GenerationConfig.from_pretrained(model_name)
-gen_cfg.max_new_tokens = 256
-gen_cfg.temperature = 0.0000001 
-gen_cfg.return_full_text = True
-gen_cfg.do_sample = True
-gen_cfg.repetition_penalty = 1.11
-    
-tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
-
-pipe = pipeline(
-        task="text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        generation_config=gen_cfg
-    )
-
-#llm = HuggingFacePipeline(pipeline=pipe)
-
-# Access the API Key and Org ID
-# API_KEY = os.getenv("OPENAI_API_KEY")
-# ORG_ID = os.getenv("OPENAI_ORG_ID")
-class HuggingFacePipelineService:
-    def __init__(self, pipeline, service_id):
-        self.pipeline = pipeline
-        self.service_id = service_id
-
-    def generate(self, input_text):
-        return self.pipeline(input_text)
 
 class EventInitializer:
-
     def __init__(self):
         self.service = gcal.get_service()
-       
-        
-        self.kernel = sk.Kernel()  # Initialize a semantic kernel
 
-        # Configure LLM service
-        # self.kernel.config.add_text_completion_service(
-        #     "llm", sk_hf.HuggingFaceTextCompletion("llm", task="text-generation")
-        # )
-
-        # self.kernel.config.add_text_embedding_generation_service(
-        #     "microsoft/Phi-3.5-mini-instruct",
-        #     sk_hf.HuggingFaceTextEmbedding("microsoft/Phi-3.5-mini-instruct"),
-        # )
-        # self.kernel.register_memory_store(memory_store=sk.memory.VolatileMemoryStore())
-        # self.kernel.import_skill(sk.core_skills.TextMemorySkill())
-
-        huggingface_service = HuggingFacePipelineService(pipe, "huggingface_llm")
-
-
-        self.kernel.add_service(huggingface_service) # Add phi-mini chat service to the kernel
-
-    # For @Prakhar
+    # Use Gemini as the event generator
     async def addEventAIServer(self, action):
+        print("Action: ", action)
 
+        # Prompt for the Gemini model
         prompt = f"""
             You are a calendar assistant. Based on the following input: '{action}', generate the required JSON for a Google Calendar event.
             The JSON should contain:
@@ -99,50 +36,99 @@ class EventInitializer:
             - "timeZone": the time zone for the event.
 
             An example format is this:
-                        {{
-                    'summary': 'Work on TimeSpace',
-                    'start': {{
-                        'dateTime': datetime.datetime.utcnow().isoformat() + "Z",
-                        'timeZone': 'America/New_York',
-                    }},
-                    'end': {{
-                        'dateTime': (datetime.datetime.utcnow() + datetime.timedelta(hours=1)).isoformat() + "Z",
-                        'timeZone': 'America/New_York',
-                    }},
-                }}
-            
-            """
-        huggingface_service = self.kernel.get_service("huggingface_llm")
-        print(prompt)
-        response = huggingface_service.generate(prompt)
-        return response
-    
-    # Method to insert new event with specified parameters, NO ERROR HANDLING YET
-    def add_event(self, event_body):
-        if not validate_event_body(event_body): return False # validate
-        
-        event = self.service.events().insert(calendarId='primary', body=event_body).execute() # insert
+            {{
+                'summary': 'Work on TimeSpace',
+                'start': {{
+                    'dateTime': datetime.datetime.utcnow().isoformat() + "Z",
+                    'timeZone': 'America/New_York',
+                }},
+                'end': {{
+                    'dateTime': (datetime.datetime.utcnow() + datetime.timedelta(hours=1)).isoformat() + "Z",
+                    'timeZone': 'America/New_York',
+                }},
+            }}
+        """
 
-        print ('Event created: %s' % event.get('htmlLink'))
-        webbrowser.open(event.get('htmlLink')) # navigate user to event in GCal UI (potential pitfall of opening in browser window that is logged into another Google account)
-    
+        # Define the model and generation configuration for Gemini
+        generation_config = {
+            "temperature": 1,
+            "top_p": 0.95,
+            "top_k": 64,
+            "max_output_tokens": 8192,
+            "response_mime_type": "text/plain",
+        }
+
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            generation_config=generation_config,
+        )
+
+        # Create a chat session with Gemini and send the prompt
+        chat_session = model.start_chat(
+            history=[
+                {
+                    "role": "user",
+                    "parts": [
+                        f"""
+                        You are a calendar assistant. Based on the following input: '{action}', generate the required JSON for a Google Calendar event.
+                        The JSON should contain:
+                        - "summary": a short title for the event,
+                        - "start": the start time in ISO 8601 format,
+                        - "end": the end time in ISO 8601 format,
+                        - "timeZone": the time zone for the event.
+
+                        An example format is this:
+                        {{
+                            'summary': 'Meeting with John',
+                            'start': {{
+                                'dateTime': '2024-10-18T10:00:00',
+                                'timeZone': 'America/New_York',
+                            }},
+                            'end': {{
+                                'dateTime': '2024-10-18T11:00:00',
+                                'timeZone': 'America/New_York',
+                            }},
+                        }}
+                        """
+                    ],
+                }
+            ]
+        )
+
+        # Generate response
+        response = chat_session.send_message(prompt + action)
+        print("Response: ", response.text)
+        return response
+
+    # Insert new event into Google Calendar
+    def add_event(self, event_body):
+        if not validate_event_body(event_body):
+            return False  # Validate event body
+        
+        event = self.service.events().insert(calendarId='primary', body=event_body).execute()  # Insert event
+        
+        print('Event created: %s' % event.get('htmlLink'))
+        webbrowser.open(event.get('htmlLink'))  # Open event in Google Calendar
+
     # Testing method to check scopes 
     def check_scopes(self):
         print(self.service.calendarList().get(calendarId='primary').execute())
 
 
-# Helper method to validate event specifications, could be modified specifically for the logic that will control the user being prompted for more info
+# Helper method to validate event specifications
 def validate_event_body(event_body):
     try:
         return event_body['summary'] and event_body['start'] and event_body['end']
-    finally:
+    except KeyError:
         return False
 
-# Testing
 
+# Testing
 async def main():
     agent = EventInitializer()
-    agent.add_event(event_body={ # sample event for the next hour
+
+    # Sample event for the next hour
+    agent.add_event(event_body={
         'summary': 'Work on TimeSpace',
         'start': {
             'dateTime': datetime.datetime.utcnow().isoformat() + "Z",
@@ -152,11 +138,13 @@ async def main():
             'dateTime': (datetime.datetime.utcnow() + datetime.timedelta(hours=1)).isoformat() + "Z",
             'timeZone': 'America/New_York',
         },
-    }) # sample add
+    })
 
-    event_body =  await agent.addEventAIServer("Schedule a meeting tomorrow from 10 AM to 11 AM tomorrow with John")
+    # Schedule a meeting using Gemini AI
+    event_body = await agent.addEventAIServer("Schedule a meeting tomorrow from 10 AM to 11 AM with John")
     print("Event body: ", event_body)
     agent.add_event(event_body)
 
+
 if __name__ == "__main__":
-  asyncio.run(main())
+    asyncio.run(main())
