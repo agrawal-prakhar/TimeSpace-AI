@@ -76,7 +76,6 @@ class EventInitializer:
                 {action}
                 Right now it is {datetime.datetime.utcnow().isoformat() + "Z"} in {pytz.timezone(pytz.country_timezones('US')[0])}
                 """
-        print(prompt)
 
         # Generate response
         response = chat_session.send_message(prompt)
