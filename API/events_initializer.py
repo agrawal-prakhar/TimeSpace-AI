@@ -6,7 +6,7 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 import asyncio
 import json
-
+import pytz
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -74,7 +74,7 @@ class EventInitializer:
 
         prompt = f"""
                 {action}
-                Right now it is {datetime.datetime.utcnow().isoformat() + "Z"}
+                Right now it is {datetime.datetime.utcnow().isoformat() + "Z"} in {pytz.timezone(pytz.country_timezones('US')[0])}
                 """
         print(prompt)
 
@@ -128,7 +128,7 @@ async def main():
     })
 
     # Schedule a meeting using Gemini AI
-    event_body = json.loads((await agent.addEventAIServer("Schedule a meeting tomorrow from 10 AM to 11 AM with John")).text) # Not sure if this is the best place to do that processing?
+    event_body = json.loads((await agent.addEventAIServer("Schedule a meeting in two days in the afternoon with Eric")).text) # Not sure if this is the best place to do that processing?
     agent.add_event(event_body)
 
 
