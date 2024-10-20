@@ -42,7 +42,7 @@ def get_service():
 def main():
     service = get_service()
     # Call the Calendar API
-    now = datetime.datetime.utcnow().isoformat() + "Z"  # 'Z' indicates UTC time
+    now = datetime.datetime.now(datetime.UTC).isoformat()
     print("Getting the upcoming 10 events")
     events_result = (
         service.events()
