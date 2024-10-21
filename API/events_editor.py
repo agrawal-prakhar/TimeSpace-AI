@@ -44,8 +44,8 @@ class EventEditor:
 
         print('Event updated: ', event)
 
-# One reason I'm in favor of checking out Gemini function calling is that we could potentially use it to optimize the search for events, but making multiple API calls might be even slower than just a super general search.
-# However the model could do a lot worse correctly choosing between a set of 50 events than 10.... also could be faster digesting 2 smaller prompts than 1 big one...
+    # One reason I'm in favor of checking out Gemini function calling is that we could potentially use it to optimize the search for events, but making multiple API calls might be even slower than just a super general search.
+    # However the model could do a lot worse correctly choosing between a set of 50 events than 10.... also could be faster digesting 2 smaller prompts than 1 big one...
 
     def get_events(self):
         now = datetime.datetime.now(datetime.UTC)

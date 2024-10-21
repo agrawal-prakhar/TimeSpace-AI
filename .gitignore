@@ -1,6 +1,7 @@
 API/env
 API/.env
 env
+__pycache__
 <<<<<<< Updated upstream
 =======
 API/new_env
