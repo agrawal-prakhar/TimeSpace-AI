@@ -1,6 +1,6 @@
 import webbrowser
 import datetime
-import gcal_scraping_quickstart as gcal
+import gcal_service as gcal
 from model_initializer import ModelInitializer
 import google.generativeai as genai
 import asyncio
@@ -9,7 +9,7 @@ import pytz
 
 class EventInitializer:
     def __init__(self):
-        self.service = gcal.get_service()
+        self.service = gcal.get_service() # We should consider passing in service so as to avoid redundancy, declaring it at the higher level which also declares the agents
 
         self.model_init = ModelInitializer(f"""
             You are a calendar assistant. Based on the following input, generate the required JSON for a Google Calendar event.
@@ -36,7 +36,7 @@ class EventInitializer:
         )
 
     # Use Gemini as the event generator
-    async def addEventAIServer(self, action):
+    async def event_init_ai_server(self, action):
 
         prompt = f"""
             {action}
@@ -90,7 +90,9 @@ async def main():
     })
 
     # Schedule a meeting using Gemini AI
-    event_body = json.loads((await agent.addEventAIServer("Schedule a meeting in two days in the afternoon with Eric")).text) # Not sure if this is the best place to do that processing?
+    event_body = json.loads((await agent.event_init_ai_server("Schedule a meeting tomorrow afternoon with Eric")).text) # Not sure if this is the best place to do that processing?
+    # DEAL WITH INCOMPLETE INPUT/FOLLOW UP SYSTEM
+    # IN GENERAL WE REALLY REALLY WANNA HAMMER THE LIMITATION OF LLMS TO NOT PROMPT FOR NECESSARY SUPPLEMENTARY INFO, AND ACT IRRADICALLY ON AN IMCOMPLETE PRETENSE
     agent.add_event(event_body)
 
 if __name__ == "__main__":
