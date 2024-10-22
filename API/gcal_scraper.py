@@ -28,8 +28,6 @@ class Gcal_Scraper:
         end = datetime(int(split_date[0]), int(split_date[1]), int(split_date[2]), 23, 59, 59, 999999)
         end = pytz.timezone(self.calendar_time_zone).localize(end).isoformat()
 
-        # 
-
         ''' @TODO Could iterate over the different page tokens like this if need be (for quering large sets of data)
 
         page_token = None
@@ -66,7 +64,7 @@ class Gcal_Scraper:
             
         }
         eventsResult = self.service.freebusy().query(body=body).execute()
-        #print(eventsResult)
+
         cal_dict = eventsResult[u'calendars']
 
         return cal_dict
