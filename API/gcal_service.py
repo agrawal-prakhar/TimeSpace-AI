@@ -42,7 +42,7 @@ def get_service():
 def main():
     service = get_service()
     # Call the Calendar API
-    now = datetime.datetime.utcnow().isoformat() + "Z"  # 'Z' indicates UTC time
+    now = datetime.datetime.now(datetime.UTC).isoformat()
     print("Getting the upcoming 10 events")
     events_result = (
         service.events()
@@ -64,7 +64,7 @@ def main():
     # Prints the start and name of the next 10 events
     for event in events:
       start = event["start"].get("dateTime", event["start"].get("date"))
-      print(start, event["summary"])
+      print(start, event["summary"] if "summary" in event else "No summary" )
 
 # Toolbox for special agent use
 
