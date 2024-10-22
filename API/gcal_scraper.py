@@ -28,16 +28,21 @@ class Gcal_Scraper:
         end = datetime(int(split_date[0]), int(split_date[1]), int(split_date[2]), 23, 59, 59, 999999)
         end = pytz.timezone(self.calendar_time_zone).localize(end).isoformat()
 
-        # page_token = None
-        # while True:
+        # 
+
+        ''' @TODO Could iterate over the different page tokens like this if need be (for quering large sets of data)
+
+        page_token = None
+        while True:
+            page_token = events.get('nextPageToken')
+                if not page_token:
+                    break
+
+        '''
         events = self.service.events().list(calendarId='primary', timeMin = event_date, timeMax= end, timeZone=self.calendar_time_zone, pageToken=page_token).execute()
-            # for event in events['items']:
-            #     print (event['summary'])
+
         return events['items']
-        
-            # page_token = events.get('nextPageToken')
-            # if not page_token:
-            #     break
+    
 
     def get_busy_times(self, event_date):
 
