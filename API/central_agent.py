@@ -1,69 +1,131 @@
-#### RUN THIS TO INSTALL PKGS ########
-# This comment indicates that the following line is a shell command to install necessary packages
-# python -m pip install semantic-kernel
-######################################
-
-# Import necessary packages
-import semantic_kernel as sk  # Import the semantic_kernel library
-from semantic_kernel import PromptTemplateConfig, PromptTemplate, SemanticFunctionConfig  # Import additional classes from semantic_kernel
-from sklearn.feature_extraction.text import TfidfVectorizer  # Import TfidfVectorizer for text vectorization
-from sklearn.metrics.pairwise import cosine_similarity  # Import cosine_similarity for computing similarity between texts
-import random  # Import random module for generating random numbers
-import time  # Import time module for time-related tasks
+import json
 import asyncio
+from gcal_scraper import GcalScraper
+from events_initializer import EventInitializer
+from gcal_service import GoogleCalendarService
+from events_editor import EventEditor  # Import EventEditor to handle event editing
+import google.generativeai as genai
 
-# Define a function to calculate cosine similarity between two texts
-def calculate_cosine_similarity(text1, text2):
-    vectorizer = TfidfVectorizer()  # Initialize a TfidfVectorizer
-    tfidf_matrix = vectorizer.fit_transform([text1, text2])  # Transform the texts into TF-IDF matrix
-    return cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]  # Return the cosine similarity score
 
-# Define a function to load text lines from a file
-def load(filename):
-    lines = []  # Initialize an empty list to store lines
-    with open(filename, 'r') as file:  # Open the file in read mode
-        while True:
-            line = file.readline()  # Read a line from the file
-            if not line:  # Break the loop if no more lines
-                break
-            lines.append(line.strip())  # Add the line to the list after stripping whitespace
-    return '\n'.join(lines)  # Return the lines joined by newlines
-
-# Define a class to represent a Central Agent
+# Central Agent to manage task assignment and coordinate agents
 class CentralAgent:
     def __init__(self):
-        self.input_text = None  # Initialize input_text attribute to None
-        self.kernel = sk.Kernel()  # Initialize a semantic kernel
+        self.input_text = None
 
-    # Method to upload input text
+        # Instantiate the GoogleCalendarService
+        calendar_service = GoogleCalendarService()
+
+        # Instantiate the GcalScraper using the authenticated calendar service
+        self.gcal_scraper = GcalScraper(calendar_service)
+        self.event_initializer = EventInitializer()  # Initialize EventInitializer for creating events
+        self.event_editor = EventEditor()  # Initialize EventEditor for editing and deleting events
+
+    # Upload input text that may contain commands for the agent to process
     def upload_input_text(self, input_text):
-        self.input_text = input_text  # Set the input_text attribute
+        self.input_text = input_text
 
-    # Async method to assign tasks to different Nodes
+    # Assign tasks based on the input text using Gemini AI
     async def assign_tasks(self):
         if self.input_text:
-            # Create and execute a semantic function to give a response 
-            return self.kernel.create_semantic_function(f"""Break down the tasks that are given in the {self.input_text} and assign them to specific agents based on the functionality and what is supposed to be done with them. Make sure to provide clear instructions to the agents for the specified task""", max_tokens=1024)()
+            print(f"Input: {self.input_text}")
 
-# Define a class to represent a Node Agent
+            # Use Gemini AI to break down the input into tasks
+            task_breakdown_prompt = f"""
+                Break down the tasks given in the following input: "{self.input_text}".
+                Assign these tasks to specific agents based on functionality.
+                Use the GcalScraper for retrieving events, the EventInitializer for scheduling or creating new events, 
+                and the EventEditor for editing or deleting existing events.
+                Provide a JSON response with each task and the agent responsible. Break it down into task, type, agent, date, and event details.
+            """
+            
+            # Call Gemini model to generate the task breakdown
+            response = self.event_initializer.model_init.model.generate_content(task_breakdown_prompt)
 
+            # Debug the response before parsing
+            print(f"Raw response from Gemini: {response.text}")
 
-# Define a class to represent a General Agent
-class GeneralAgent:
-    def __init__(self):
-        self.kernel = sk.Kernel()  # Initialize a semantic kernel
-    
-# Define a coroutine to assign tasks to different agents
-async def assign_tasks(central_agent, node_agent):
-    central_agent.upload_input_text(f"""""")  # Upload input text
+            try:
+                # Attempt to parse the response as JSON
+                tasks = json.loads(response.text)
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse JSON: {e}")
+                return
 
-    action = await central_agent.assign_tasks()  # Assign tasks to each agent
+            # Debug the parsed tasks
+            print(f"Parsed tasks: {tasks}")
 
+            # Handle the tasks if parsed successfully
+            await self.handle_tasks(tasks.get("tasks", []))
 
+    # Handle tasks assigned to specific agents
+    async def handle_tasks(self, tasks):
+        for task in tasks:
+            print(f"Handling task: {task}")
+            task_type = task.get("type")
 
+            if task_type == "retrieve":
+                await self.fetch_events(task.get("date"))
+            elif task_type == "schedule":
+                await self.create_event(task.get("eventDetails"))
+            elif task_type == "edit":
+                await self.edit_event(task.get("eventDetails"))
+            else:
+                print(f"Unknown task type: {task_type}")
 
+    # Fetch events from the calendar using GcalScraper
+    async def fetch_events(self, date):
+        print(f"Fetching events for {date}...")
+        events = self.gcal_scraper.get_events_on_date(date)
+        if events:
+            for event in events:
+                print("Event:", event.get('summary', 'No Title'))
+                print("Start:", event['start'].get('dateTime', 'All-day event'))
+                print("End:", event['end'].get('dateTime', 'All-day event'))
+                print()
+        else:
+            print(f"No events found for {date}")
 
-# Execute the main function if this script is run as the main module
+    # Create an event using EventInitializer and Gemini AI
+    async def create_event(self, event_details):
+        print("Creating event with details:", event_details)
+        ai_generated_event = json.loads((await self.event_initializer.event_init_ai_server(event_details)).text)
+        self.event_initializer.add_event(ai_generated_event)
+
+    # Edit or delete an event using EventEditor
+    async def edit_event(self, event_details):
+        print("Editing event with details:", event_details)
+
+        # Fetch upcoming events before editing
+        events = self.event_editor.get_events()
+
+        # Use AI to generate an updated event body
+        event_body = json.loads((await self.event_editor.event_edit_ai_server(event_details, events)).text)
+
+        # If the event is cancelled, delete it; otherwise, update the event
+        if isinstance(event_body, list):
+            for single_event in event_body:
+                if single_event.get('status') == 'cancelled':
+                    self.event_editor.delete_event(single_event)
+                else:
+                    self.event_editor.update_event(single_event)
+        elif isinstance(event_body, dict):
+            if event_body.get('status') == 'cancelled':
+                self.event_editor.delete_event(event_body)
+            else:
+                self.event_editor.update_event(event_body)
+        else:
+            print(f"Unexpected event_body format: {type(event_body)}. Expected list or dict.")
+
+# Testing the CentralAgent functionality
+async def main():
+    # Initialize the CentralAgent
+    central_agent = CentralAgent()
+
+    # Simulate uploading input text to the agent
+    central_agent.upload_input_text("Retrieve events for 2024-10-20 and schedule a meeting tomorrow with John. Edit the event if necessary.")
+
+    # Assign tasks based on the input text
+    await central_agent.assign_tasks()
+
 if __name__ == "__main__":
-    import asyncio  # Import asyncio for asynchronous execution
-    asyncio.run()  
+    asyncio.run(main())

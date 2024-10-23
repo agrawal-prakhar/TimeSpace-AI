@@ -1,72 +1,48 @@
 import datetime
 import os.path
-
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-# If modifying these scopes, delete the file token.json.
+# Define the scope for Google Calendar API
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
-def get_service():
-  creds = None
-  # The file token.json stores the user's access and refresh tokens, and is
-  # created automatically when the authorization flow completes for the first
-  # time.
-  if os.path.exists("token.json"):
-    creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+# Class to manage Google Calendar service and events
+class GoogleCalendarService:
+    def __init__(self):
+        self.creds = None
+        self.service = None
+        self.authenticate()
 
-  # If there are no (valid) credentials available, let the user log in.
-  if not creds or not creds.valid:
-    if creds and creds.expired and creds.refresh_token:
-      creds.refresh(Request())
-    else:
-      flow = InstalledAppFlow.from_client_secrets_file(
-          "credentials.json", SCOPES
-      )
-      creds = flow.run_local_server(port=0)
-    # Save the credentials for the next run
-    with open("token.json", "w") as token:
-      token.write(creds.to_json())
+    # Authenticate and get the Google Calendar service
+    def authenticate(self):
+        """Authenticates the user and initializes the Google Calendar API service."""
+        # The file token.json stores the user's access and refresh tokens.
+        if os.path.exists("token.json"):
+            self.creds = Credentials.from_authorized_user_file("token.json", SCOPES)
 
-  try:
-    service = build("calendar", "v3", credentials=creds)
-    return service
-  
-  except HttpError as error:
-    print(f"An error occurred: {error}")
+        # If credentials are invalid or not present, prompt user for login
+        if not self.creds or not self.creds.valid:
+            if self.creds and self.creds.expired and self.creds.refresh_token:
+                self.creds.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
+                self.creds = flow.run_local_server(port=0)
+            
+            # Save credentials for future use
+            with open("token.json", "w") as token:
+                token.write(self.creds.to_json())
+
+        try:
+            self.service = build("calendar", "v3", credentials=self.creds)
+        except HttpError as error:
+            print(f"An error occurred: {error}")
 
 
-def main():
-    service = get_service()
-    # Call the Calendar API
-    now = datetime.datetime.now(datetime.UTC).isoformat()
-    print("Getting the upcoming 10 events")
-    events_result = (
-        service.events()
-        .list(
-            calendarId="primary",
-            timeMin=now,
-            maxResults=10,
-            singleEvents=True,
-            orderBy="startTime",
-        )
-        .execute()
-    )
-    events = events_result.get("items", [])
-
-    if not events:
-      print("No upcoming events found.")
-      return
-
-    # Prints the start and name of the next 10 events
-    for event in events:
-      start = event["start"].get("dateTime", event["start"].get("date"))
-      print(start, event["summary"] if "summary" in event else "No summary" )
-
-# Toolbox for special agent use
-
+# Testing the class
 if __name__ == "__main__":
-  main()
+    calendar_service = GoogleCalendarService()
+    events = calendar_service.get_upcoming_events()
+    calendar_service.print_events(events)
