@@ -1,16 +1,17 @@
 import webbrowser
 import datetime
-import gcal_service as gcal
-from model_initializer import ModelInitializer
-import google.generativeai as genai
 import asyncio
 import json
-import pytz
+from gcal_service import GoogleCalendarService  # Import the GoogleCalendarService class
+from model_initializer import ModelInitializer
+import google.generativeai as genai
 
 class EventInitializer:
     def __init__(self):
-        self.service = gcal.get_service() # We should consider passing in service so as to avoid redundancy, declaring it at the higher level which also declares the agents
+        # Initialize the Google Calendar Service
+        self.calendar_service = GoogleCalendarService()
 
+        # Initialize the ModelInitializer for generating events using AI
         self.model_init = ModelInitializer(f"""
             You are a calendar assistant. Based on the following input, generate the required JSON for a Google Calendar event.
             The JSON should contain:
@@ -37,40 +38,35 @@ class EventInitializer:
 
     # Use Gemini as the event generator
     async def event_init_ai_server(self, action):
-
+        current_time = datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
         prompt = f"""
             {action}
-            Right now it is {datetime.datetime.now(datetime.UTC).isoformat() + "Z"} in {pytz.timezone(pytz.country_timezones('US')[0])}
-            """
+            Right now it is {current_time} in UTC.
+        """
         # Generate response
-        response = self.model_init.model.generate_content(prompt) # changed from chat_session.send_message because this agent doesn't require ongoing thread communication
+        response = self.model_init.model.generate_content(prompt)
         return response
-
-    # IS IT MORE APPROPRIATE TO MAKE IT 'add_events' and pass in a set of events 
 
     # Insert new event into Google Calendar
     def add_event(self, event_body):
-        if not validate_event_body(event_body):
+        if not self.validate_event_body(event_body):
             return False  # Validate event body
+
+        event = self.calendar_service.service.events().insert(calendarId='primary', body=event_body).execute()  # Insert event
         
-        event = self.service.events().insert(calendarId='primary', body=event_body).execute()  # Insert event
-        
-        print('Event created: ', event_body)
+        print('Event created:', event_body)
         webbrowser.open(event.get('htmlLink'))  # Open event in Google Calendar
 
-    # Testing method to check scopes 
+    # Helper method to validate event specifications
+    def validate_event_body(self, event_body):
+        try:
+            return event_body['summary'] and event_body['start'] and event_body['end']
+        except KeyError:
+            return False
+
+    # Method to check if the scopes are correct
     def check_scopes(self):
-        print(self.service.calendarList().get(calendarId='primary').execute())
-
-
-# Helper method to validate event specifications
-# Needs work, doesn't give useful output or check type of input, also KeyError doesn't work as a catch all
-def validate_event_body(event_body):
-    try:
-        return event_body['summary'] and event_body['start'] and event_body['end']
-    except KeyError:
-        return False
-
+        self.calendar_service.check_scopes()
 
 # Testing
 async def main():
@@ -80,19 +76,17 @@ async def main():
     agent.add_event(event_body={
         'summary': 'Work on TimeSpace',
         'start': {
-            'dateTime': datetime.datetime.now(datetime.UTC).isoformat(),
+            'dateTime': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'timeZone': 'America/New_York',
         },
         'end': {
-            'dateTime': (datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=1)).isoformat(),
+            'dateTime': (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)).isoformat(),
             'timeZone': 'America/New_York',
         },
     })
 
     # Schedule a meeting using Gemini AI
-    event_body = json.loads((await agent.event_init_ai_server("Schedule a meeting tomorrow afternoon with Eric")).text) # Not sure if this is the best place to do that processing?
-    # DEAL WITH INCOMPLETE INPUT/FOLLOW UP SYSTEM
-    # IN GENERAL WE REALLY REALLY WANNA HAMMER THE LIMITATION OF LLMS TO NOT PROMPT FOR NECESSARY SUPPLEMENTARY INFO, AND ACT IRRADICALLY ON AN IMCOMPLETE PRETENSE
+    event_body = json.loads((await agent.event_init_ai_server("Schedule a meeting tomorrow afternoon with Eric")).text)
     agent.add_event(event_body)
 
 if __name__ == "__main__":
