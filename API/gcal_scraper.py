@@ -99,13 +99,12 @@ if __name__ == "__main__":
     cal_scraper = GcalScraper(calendar_service)
     
     # Get events on a specific date
-    events = cal_scraper.get_events_on_date('2024-10-20')
+    events = cal_scraper.get_events_on_date('2024-10-23')
     if events:
         for event in events:
             print("Event:", event.get('summary', 'No Title'))
             print("Start:", event['start'].get('dateTime', 'All-day event'))
             print("End:", event['end'].get('dateTime', 'All-day event'))
-            print()
     else:
         print("No events found.")
 
