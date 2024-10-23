@@ -1,77 +1,106 @@
 import webbrowser
 import datetime
-import gcal_service as gcal
+from gcal_service import GoogleCalendarService  # Import the existing GoogleCalendarService class
 from model_initializer import ModelInitializer
-import google.generativeai as genai
 import asyncio
 import json
-import pytz
 
 class EventEditor:
     def __init__(self):
-        self.service = gcal.get_service()
+        # Use the GoogleCalendarService to handle authentication and service initialization
+        calendar_service = GoogleCalendarService()
+        self.service = calendar_service.service
 
+        # Initialize the AI model for event editing
         self.model_init = ModelInitializer(f"""
-            You are a calendar assistant. You will recieve instructions as provided by the user, a list of the user's events, and current datetime info. 
-            Pick the appropriate event, and generate a new JSON for that event with changes reflecting the instructions from the user.
-            """, # Could need further prompting, WE NEEEEEEED TO FIGURE OUT IF IT CAN'T FIND IT OR NOT ENOUGH INFO GIVEN
-            config_mods={"response_mime_type": "application/json"}
-        )
+            You are a calendar assistant. You will receive instructions as provided by the user, a list of the user's events, and current datetime info.
+            Pick the appropriate event and generate a new JSON for that event with changes reflecting the instructions from the user.
+        """, config_mods={"response_mime_type": "application/json"})
 
-    # Use Gemini as the event generator
+    # Use the AI model to edit an event based on user input
     async def event_edit_ai_server(self, action, events):
-
+        # Generate the prompt for the AI model
         prompt = f"""
             {action}
             {events}
-            Right now it is {datetime.datetime.now(datetime.UTC).isoformat() + "Z"} in {pytz.timezone(pytz.country_timezones('US')[0])}
-            """
-        # Generate response
-        response = self.model_init.model.generate_content(prompt) # changed from chat_session.send_message because this agent doesn't require ongoing thread communication
+            Right now it is {datetime.datetime.now(datetime.timezone.utc).isoformat()} in UTC.
+        """
+        # Generate response using the AI model
+        response = self.model_init.model.generate_content(prompt)
         return response
 
-
-    #  Delete event from Google Calendar by ID
+    # Delete an event from Google Calendar by event ID
     def delete_event(self, event_body):
-        
-        event = self.service.events().delete(calendarId='primary', eventId=event_body['id']).execute()  # Delete event
-        
-        print('Event deleted: ', event)
-    
+        try:
+            event = self.service.events().delete(calendarId='primary', eventId=event_body['id']).execute()
+            print('Event deleted:', event_body['summary'])
+        except Exception as e:
+            print(f"Error deleting event: {e}")
+
+    # Update an event on Google Calendar by event ID
     def update_event(self, event_body):
-        
-        event = self.service.events().update(calendarId='primary', eventId=event_body['id'], body=event_body).execute()
+        try:
+            event = self.service.events().update(calendarId='primary', eventId=event_body['id'], body=event_body).execute()
+            print('Event updated:', event_body['summary'])
+        except Exception as e:
+            print(f"Error updating event: {e}")
 
-        print('Event updated: ', event)
-
-    # One reason I'm in favor of checking out Gemini function calling is that we could potentially use it to optimize the search for events, but making multiple API calls might be even slower than just a super general search.
-    # However the model could do a lot worse correctly choosing between a set of 50 events than 10.... also could be faster digesting 2 smaller prompts than 1 big one...
-
+    # Get upcoming events from the user's Google Calendar
     def get_events(self):
-        now = datetime.datetime.now(datetime.UTC)
-        events_result = (
-            self.service.events()
-            .list(
-                
+        now = datetime.datetime.now(datetime.timezone.utc)
+        try:
+            events_result = self.service.events().list(
                 calendarId="primary",
-                timeMin=now.isoformat(), # now + datetime.timedelta(days=-7) for last week
-                maxResults=10, 
-                singleEvents=True, # weird thing happening here, wont get future events if it's false?
-            )
-            .execute()
-        )
-        events = events_result.get("items", [])
-        return events
+                timeMin=now.isoformat(),
+                maxResults=10,
+                singleEvents=True,
+                orderBy="startTime"
+            ).execute()
+            events = events_result.get("items", [])
+            return events
+        except Exception as e:
+            print(f"Error fetching events: {e}")
+            return []
 
 # Testing
 async def main():
     agent = EventEditor()
 
+    # Fetch upcoming events
     events = agent.get_events()
 
-    event_body = json.loads((await agent.event_edit_ai_server("Change name of upcoming event to True", events)).text)
+    # Log fetched events for debugging
+    print("Fetched Events:")
+    print(json.dumps(events, indent=2))
 
-    agent.delete_event(event_body) if event_body['status'] == 'cancelled' else agent.update_event(event_body)
+    # Use AI to generate an updated event body
+    ai_response = await agent.event_edit_ai_server("Change name of upcoming event to True", events)
+    
+    try:
+        # Attempt to parse the AI-generated event body
+        event_body = json.loads(ai_response.text)
+        print("AI-Generated Event Body:")
+        print(json.dumps(event_body, indent=2))
+    except json.JSONDecodeError as e:
+        print(f"Error decoding AI response: {e}")
+        return
+
+    # Handle the case where event_body is a list of events
+    if isinstance(event_body, list):
+        for single_event in event_body:
+            # If the event is cancelled, delete it; otherwise, update the event
+            if single_event.get('status') == 'cancelled':
+                agent.delete_event(single_event)
+            else:
+                agent.update_event(single_event)
+    elif isinstance(event_body, dict):
+        # If a single event is returned as a dict, process it directly
+        if event_body.get('status') == 'cancelled':
+            agent.delete_event(event_body)
+        else:
+            agent.update_event(event_body)
+    else:
+        print(f"Unexpected event_body format: {type(event_body)}. Expected list or dict.")
 
 if __name__ == "__main__":
     asyncio.run(main())
