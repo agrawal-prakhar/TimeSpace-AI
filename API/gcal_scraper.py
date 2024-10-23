@@ -1,105 +1,95 @@
-
-import webbrowser
-from datetime import *
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo  # Standard in Python 3.9+
 import gcal_service as gcal
-from model_initializer import ModelInitializer
-import google.generativeai as genai
 import asyncio
-import json
-import pytz
 
-#Class to scrape Gcal
-class Gcal_Scraper:
 
-    #initialize the service
+# Class to scrape Google Calendar (Gcal)
+class GcalScraper:
     def __init__(self):
+        """Initialize the Google Calendar service and fetch the primary calendar time zone."""
         self.service = gcal.get_service()
         calendar = self.service.calendars().get(calendarId='primary').execute()
-        self.calendar_time_zone = calendar['timeZone']
+        self.calendar_time_zone = ZoneInfo(calendar['timeZone'])
 
-    #get events on a specified day
-    def get_events_at_date(self, event_date):
+    def get_events_on_date(self, event_date):
+        """
+        Get all events on a specific date from the primary calendar.
 
-        split_date = event_date.split('-')
+        :param event_date: A string date in 'YYYY-MM-DD' format.
+        :return: A list of events on the given date.
+        """
+        event_date_dt = self._convert_to_datetime(event_date)
+        event_end_dt = event_date_dt + timedelta(days=1) - timedelta(seconds=1)
 
-        event_date = datetime(int(split_date[0]), int(split_date[1]), int(split_date[2]), 00, 00, 00, 0)
-        event_date = pytz.timezone(self.calendar_time_zone).localize(event_date).isoformat()
+        events = self.service.events().list(
+            calendarId='primary',
+            timeMin=event_date_dt.isoformat(),
+            timeMax=event_end_dt.isoformat(),
+            timeZone=self.calendar_time_zone.key  # Use the zone name (e.g., "America/New_York")
+        ).execute()
 
-        end = datetime(int(split_date[0]), int(split_date[1]), int(split_date[2]), 23, 59, 59, 999999)
-        end = pytz.timezone(self.calendar_time_zone).localize(end).isoformat()
-
-        ''' @TODO Could iterate over the different page tokens like this if need be (for quering large sets of data)
-
-        page_token = None
-        while True:
-            page_token = events.get('nextPageToken')
-                if not page_token:
-                    break
-
-        '''
-        events = self.service.events().list(calendarId='primary', timeMin = event_date, timeMax= end, timeZone=self.calendar_time_zone, pageToken=page_token).execute()
-
-        return events['items']
-    
+        return events.get('items', [])
 
     def get_busy_times(self, event_date):
+        """
+        Get the busy times (i.e., time ranges where events exist) on a specific date.
 
-        split_date = event_date.split('-')
-
-        event_date = datetime(int(split_date[0]), int(split_date[1]), int(split_date[2]), 00, 00, 00, 0)
-        event_date = pytz.timezone(self.calendar_time_zone).localize(event_date).isoformat()
-
-        end = datetime(int(split_date[0]), int(split_date[1]), int(split_date[2]), 23, 59, 59, 999999)
-        end = pytz.timezone(self.calendar_time_zone).localize(end).isoformat()
-
+        :param event_date: A string date in 'YYYY-MM-DD' format.
+        :return: A dictionary containing busy times for the specified date.
+        """
+        event_date_dt = self._convert_to_datetime(event_date)
+        event_end_dt = event_date_dt + timedelta(days=1) - timedelta(seconds=1)
 
         body = {
-            "timeMin": event_date,
-            "timeMax": end,
-            "timeZone": self.calendar_time_zone,
-            "items": [
-
-                {"id": 'primary' }
-            ]
-            
+            "timeMin": event_date_dt.isoformat(),
+            "timeMax": event_end_dt.isoformat(),
+            "timeZone": self.calendar_time_zone.key,
+            "items": [{"id": 'primary'}]
         }
-        eventsResult = self.service.freebusy().query(body=body).execute()
 
-        cal_dict = eventsResult[u'calendars']
+        events_result = self.service.freebusy().query(body=body).execute()
+        return events_result.get('calendars', {})
 
-        return cal_dict
-        
-                
+    def _convert_to_datetime(self, date_string):
+        """
+        Helper function to convert a date string in 'YYYY-MM-DD' format to a timezone-aware datetime object.
 
-    #find a time based on the date and the duration of the new activity
+        :param date_string: A string date in 'YYYY-MM-DD' format.
+        :return: A timezone-aware datetime object.
+        """
+        dt = datetime.strptime(date_string, '%Y-%m-%d')
+        return dt.replace(tzinfo=self.calendar_time_zone)
+
+    # Future feature placeholders (not yet implemented)
     def find_time(self, date, duration):
+        """Find an available time slot on a specific date for the given duration."""
         pass
 
-
-    #get tasks of the events
     def get_tasks(self):
+        """Fetch tasks associated with calendar events."""
         pass
 
-#Testing
 
+# Testing
 async def main():
-
-    cal_sraper = Gcal_Scraper()
-    events = cal_sraper.get_events_at_date('2024-10-20')
+    cal_scraper = GcalScraper()
     
+    # Get events on a specific date
+    events = cal_scraper.get_events_on_date('2024-10-20')
     for event in events:
-        print("Event", event)
-        print("Start: ", event['start']['dateTime'])
-        print("End: ", event['end']['dateTime'])
+        print("Event:", event.get('summary', 'No Title'))
+        print("Start:", event['start'].get('dateTime', 'All-day event'))
+        print("End:", event['end'].get('dateTime', 'All-day event'))
         print()
 
-    busy_times = cal_sraper.get_busy_times('2024-10-20')
-    for cal_name in busy_times:
-            print(busy_times[cal_name])
-
-
+    # Get busy times on a specific date
+    busy_times = cal_scraper.get_busy_times('2024-10-20')
+    for calendar_id, busy_info in busy_times.items():
+        print(f"Calendar: {calendar_id}")
+        print("Busy periods:", busy_info.get('busy', 'No busy periods'))
+        print()
 
 
 if __name__ == "__main__":
     asyncio.run(main())
-
