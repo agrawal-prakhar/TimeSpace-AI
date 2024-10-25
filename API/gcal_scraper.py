@@ -47,7 +47,7 @@ class GcalScraper:
 
     def get_busy_times(self, event_date):
         """
-        Get the busy times (i.e., time ranges where events exist) on a specific date.
+        Get the busy times (i.e., time ranges where events exist) on a specific date for the primary calendar.
 
         :param event_date: A string date in 'YYYY-MM-DD' format.
         :return: A dictionary containing busy times for the specified date.
@@ -64,7 +64,7 @@ class GcalScraper:
 
         try:
             events_result = self.service.freebusy().query(body=body).execute()
-            return events_result.get('calendars', {})
+            return events_result.get('calendars', {})['primary']['busy']
         except HttpError as error:
             print(f"Error fetching busy times: {error}")
             return {}
@@ -76,19 +76,108 @@ class GcalScraper:
         :param date_string: A string date in 'YYYY-MM-DD' format.
         :return: A timezone-aware datetime object.
         """
+
+
         dt = datetime.strptime(date_string, '%Y-%m-%d')
         return dt.replace(tzinfo=self.calendar_time_zone)
+    
+    def parse_times(self, times):
+        """
+        Helper function to parse time blocks and return a list of start and end times in datetime format.
 
-    # Placeholder for finding time slots (not yet implemented)
-    def find_time(self, date, duration):
-        """Find an available time slot on a specific date for the given duration."""
-        pass
+        :param times (dict): Dictionary containing time periods with 'start' and 'end' times in ISO 8601 format.
+                                  Example structure: [{'start': 'ISO format', 'end': 'ISO format'}, ...]
 
-    # Placeholder for getting tasks (not yet implemented)
-    def get_tasks(self):
-        """Fetch tasks associated with calendar events."""
-        pass
+        :return times_converted (list): List of tuples where each tuple contains the start and end times as datetime objects.
+        """
 
+        times_converted = []
+        for time_block in times:
+            start_time = datetime.fromisoformat(time_block['start'])
+            end_time = datetime.fromisoformat(time_block['end'])
+            times_converted.append((start_time, end_time))
+        
+        return times_converted
+    
+    def format_times(self, times):
+        """
+        Helper function to format time slots into a list of dictionaries with ISO format strings.
+
+        :param times (list): List of tuples with start and end times for all different time slots.
+
+        :return formatted_times (list): List of dictionaries representing time slots with 'start' and 'end' keys.
+        """
+
+        formatted_times = []
+        for start, end in times:
+            formatted_times.append({
+                'start': start.isoformat(),
+                'end': end.isoformat()
+            })
+
+        return formatted_times
+        
+    def find_times(self, date, duration, start_time = 7.0, end_time = 22.0):
+        """
+        Finds and returns all available time slots on a specific date for the given duration, excluding busy periods, for the primary calendar.
+
+        :param date: A string representing the date (in 'YYYY-MM-DD' format) for which free times are to be found.
+        :param duration: An integer representing the desired duration of the meeting in minutes.
+        :param start_time: A float that represents the time at which your working day starts (time when you wake up) in millitary time. 7:30 would be represented as 7.5. Default: 7am.
+        :param end_time: A float that represents the time at which your working day ends (time when you sleep) in millitary time. Default: 10pm.
+
+        :return formatted_free_times (list): A list of available time slots, formatted and sorted, each represented 
+                                            as a tuple containing start and end times in datetime format.
+        """
+
+        #Get all the busy times on a given date
+        busy_times_raw = self.get_busy_times(date)
+        busy_times = self.parse_times(busy_times_raw)
+        date = self._convert_to_datetime(date)
+        
+        # Sort busy times by start time
+        busy_times.sort(key=lambda x: x[0])
+
+        #Get the exact hour and minutes from start and end times
+        start_hour = int(start_time)
+        start_minute = int((start_time - start_hour) * 60)
+
+        end_hour = int(end_time)
+        end_minute = int((end_time - end_hour) * 60)
+
+        # Define the working day time range (Default 7am - 10pm)
+        work_start_time = date.replace(hour= start_hour, minute=start_minute, second=0, microsecond=0)
+        work_end_time = date.replace(hour= end_hour, minute=end_minute, second=0, microsecond=0)
+        
+        # Convert the duration to a timedelta object
+        duration_delta = timedelta(minutes=duration)
+        
+        available_times = []
+        current_time = work_start_time
+
+        # Loop through busy times and find available gaps
+        for busy_start, busy_end in busy_times:
+            # Check if there is a gap between the current time and the next busy period
+            if busy_start > current_time:
+                gap = busy_start - current_time
+                # If the gap is larger than or equal to the duration, it's an available slot
+                if gap >= duration_delta:
+                    available_times.append((current_time, busy_start))
+
+            # Move the current time to the end of the busy period
+            current_time = max(current_time, busy_end)
+
+        # Check for availability between the end of the last busy period and the end of the workday
+        if work_end_time > current_time:
+            gap = work_end_time - current_time
+            if gap >= duration_delta:
+                available_times.append((current_time, work_end_time))
+
+        # Format the free times to be helpful later
+        formatted_free_times = self.format_times(available_times)
+        
+        #Return the formatted free times
+        return formatted_free_times
 
 # Testing
 if __name__ == "__main__":
@@ -110,8 +199,25 @@ if __name__ == "__main__":
         print("No events found.")
 
     # Get busy times on a specific date
-    busy_times = cal_scraper.get_busy_times('2024-10-20')
-    for calendar_id, busy_info in busy_times.items():
-        print(f"Calendar: {calendar_id}")
-        print("Busy periods:", busy_info.get('busy', 'No busy periods'))
-        print()
+    busy_times = cal_scraper.get_busy_times('2024-10-24')
+    print(busy_times)
+
+    print("Busy times: ")
+    for time_slot in busy_times:
+        start_time = time_slot['start']
+        end_time = time_slot['end']
+        print(f"Start: {start_time}")
+        print(f"End: {end_time}")
+        print() 
+
+    #Find time slots available for atleast an hour on a specifc date for between specific times
+    free_times = cal_scraper.find_times('2024-10-24', 60, 7.5, 23)
+    print(free_times)
+
+    print("Free times: ")
+    for time_slot in free_times:
+        start_time = time_slot['start']
+        end_time = time_slot['end']
+        print(f"Start: {start_time}")
+        print(f"End: {end_time}")
+        print() 
