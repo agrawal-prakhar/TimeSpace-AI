@@ -176,7 +176,7 @@ class GcalScraper:
         # Format the free times to be helpful later
         formatted_free_times = self.format_times(available_times)
         
-        #Return the formatted free times
+        # Return the formatted free times
         return formatted_free_times
 
 # Testing
