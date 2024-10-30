@@ -5,6 +5,7 @@ from events_initializer import EventInitializer
 from gcal_service import GoogleCalendarService
 from events_editor import EventEditor  # Import EventEditor to handle event editing
 import google.generativeai as genai
+import textwrap
 from model_initializer import ModelInitializer
 
 
@@ -31,15 +32,13 @@ class CentralAgent:
             print(f"Input: {self.input_text}")
 
             # Use Gemini AI to break down the input into tasks
-            task_breakdown_prompt = f"""
+            task_breakdown_prompt = textwrap.dedent(f"""
                 Break down the tasks given in the following input: "{self.input_text}".
                 Assign these tasks to specific agents based on functionality.
                 Use the GcalScraper for retrieving events, the EventInitializer for scheduling or creating new events, 
                 and the EventEditor for editing or deleting existing events. 
                 Provide a JSON response with each task and the agent responsible. Break it down into task, type, agent, date, and event details.
-                These are the ONLY acceptable task types: retrieve events, retrieve free times, schedule, edit. If it does not match any of these,
-                respond with "unknown task".
-            """
+            """)
             
             # Call Gemini model to generate the task breakdown
             response = self.event_initializer.model_init.model.generate_content(task_breakdown_prompt)

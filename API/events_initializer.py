@@ -119,7 +119,7 @@ async def main():
         },
     })
     # Schedule a meeting using Gemini AI
-    await agent.invoke("Schedule a meeting yesterday at this time.")
+    await agent.invoke("Schedule me some time to do my math hw tomorrow.")
 
 if __name__ == "__main__":
     asyncio.run(main())
