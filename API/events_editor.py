@@ -17,6 +17,7 @@ class EventEditor:
             textwrap.dedent(f"""
                 You are a calendar assistant. You will recieve instructions as provided by the user, a list of the user's events, and current datetime info.
                 Pick the appropriate event, and output a new JSON object for that event with changes reflecting the instructions from the user.
+                (Summary is the name of the event)
                 IMPORTANT: IF THE USER INPUT IS AT ALL UNCLEAR, OR DOES NOT PERFECTLY MATCH UP TO AN EVENT FROM THE LIST, RETURN A JSON BRIEFLY DETAILING THE ERROR. This should be the DEFAULT behavior, i.e. most instruction possibilities should not match any event.
             """), # Currently configured for ONE output
             config_mods={"response_mime_type": "application/json"} # only mod to default config is output as JSON
@@ -99,7 +100,7 @@ class EventEditor:
 async def main():
     agent = EventEditor()
 
-    await agent.invoke("Push my meeting with john back two hours")
+    await agent.invoke("Delete rest from my calendar")
 
 if __name__ == "__main__":
     asyncio.run(main())
