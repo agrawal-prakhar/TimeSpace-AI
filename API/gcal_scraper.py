@@ -2,6 +2,11 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from googleapiclient.errors import HttpError
 from gcal_service import GoogleCalendarService
+from model_initializer import ModelInitializer
+import textwrap
+import pytz
+import json
+import asyncio
 
 # Class to scrape Google Calendar (Gcal)
 class GcalScraper:
@@ -11,8 +16,93 @@ class GcalScraper:
         :param calendar_service: An instance of GoogleCalendarService.
         """
         self.service = calendar_service.service
-        self.calendar_time_zone = self._fetch_primary_timezone()
+        self.calendar_time_zone = self._fetch_primary_timezone() # Be careful, this gets the calendar
+        self.model_init = ModelInitializer(
+            textwrap.dedent(f"""
+                You are an agent for a Google Calendar AI assistant. Your job is to craft query parameters that will list out the 'relevant' events based on the prompt, to supply context for the actions other agents. You will be given local time and the timezone of the user.
+                The supported parameters, in accordance with the Google API documentation for Events: list, are as follows:
+                - calendarId    string  Which of the user's calendars to sample. For primary calendar (default behavior) use the "primary" keyword REQUIRED PARAMETER.
+                - eventTypes	string	Event types to return. Optional. This parameter can be repeated multiple times to return events of different types. If unset, returns all event types. 
+                    Acceptable values are: 
+                    - "birthday": Special all-day events with an annual recurrence.
+                    - "default": Regular events.
+                    - "focusTime": Focus time events.
+                    - "fromGmail": Events from Gmail.
+                    - "outOfOffice": Out of office events.
+                    - "workingLocation": Working location events.
+                - iCalUID	string	Specifies an event ID in the iCalendar format to be provided in the response. Optional. Use this if you want to search for an event by its iCalendar ID.
+                - maxAttendees	integer	The maximum number of attendees to include in the response. If there are more than the specified number of attendees, only the participant is returned. Optional.
+                - maxResults	integer	Maximum number of events returned on one result page. The number of events in the resulting page may be less than this value, or none at all, even if there are more events matching the query. Incomplete pages can be detected by a non-empty nextPageToken field in the response. By default the value is 250 events. The page size can never be larger than 2500 events. Optional.
+                - orderBy	string	The order of the events returned in the result. Optional. The default is an unspecified, stable order.
+                    Acceptable values are:
+                        - "startTime": Order by the start date/time (ascending). This is only available when querying single events (i.e. the parameter singleEvents is True)
+                        - "updated": Order by last modification time (ascending).
+                - pageToken	string	Token specifying which result page to return. Optional.
+                - privateExtendedProperty	string	Extended properties constraint specified as propertyName=value. Matches only private properties. This parameter might be repeated multiple times to return events that match all given constraints.
+                - q	string	Free text search terms to find events that match these terms in the following fields:
+                    - summary
+                    - description
+                    - location
+                    - attendee's displayName
+                    - attendee's email
+                    - organizer's displayName
+                    - organizer's email
+                    - workingLocationProperties.officeLocation.buildingId
+                    - workingLocationProperties.officeLocation.deskId
+                    - workingLocationProperties.officeLocation.label
+                    - workingLocationProperties.customLocation.label
+                These search terms also match predefined keywords against all display title translations of working location, out-of-office, and focus-time events. For example, searching for "Office" or "Bureau" returns working location events of type officeLocation, whereas searching for "Out of office" or "Abwesend" returns out-of-office events. Optional.
+                - sharedExtendedProperty	string	Extended properties constraint specified as propertyName=value. Matches only shared properties. This parameter might be repeated multiple times to return events that match all given constraints.
+                - showDeleted	boolean	Whether to include deleted events (with status equals "cancelled") in the result. Cancelled instances of recurring events (but not the underlying recurring event) will still be included if showDeleted and singleEvents are both False. If showDeleted and singleEvents are both True, only single instances of deleted events (but not the underlying recurring events) are returned. Optional. The default is False.
+                - showHiddenInvitations	boolean	Whether to include hidden invitations in the result. Optional. The default is False.
+                - singleEvents	boolean	Whether to expand recurring events into instances and only return single one-off events and instances of recurring events, but not the underlying recurring events themselves. Optional. The default is False. (USE TRUE FOR OUR USE CASE)
+                - timeMax	datetime	Upper bound (exclusive) for an event's start time to filter by. Optional. The default is not to filter by start time. Must be an RFC3339 timestamp with mandatory time zone offset, for example, 2011-06-03T10:00:00-07:00, 2011-06-03T10:00:00Z. Milliseconds may be provided but are ignored. If timeMin is set, timeMax must be greater than timeMin.
+                - timeMin	datetime	Lower bound (exclusive) for an event's end time to filter by. Optional. The default is not to filter by end time. Must be an RFC3339 timestamp with mandatory time zone offset, for example, 2011-06-03T10:00:00-07:00, 2011-06-03T10:00:00Z. Milliseconds may be provided but are ignored. If timeMax is set, timeMin must be smaller than timeMax.
+                - timeZone	string	Time zone used in the response. Optional. The default is the time zone of the calendar.
+                - updatedMin	datetime	Lower bound for an event's last modification time (as a RFC3339 timestamp) to filter by. When specified, entries deleted since this time will always be included regardless of showDeleted. Optional. The default is not to filter by last modification time.
+                
+                Craft your query parameters logically, utilizing query parameters only when they are necessary to provide "relevant context" for the action. Here are some examples. For an action that mentions "editing the next upcoming event" you might set the timeMin to the current time and maxResults to 1, because all that matters is that one event. For the action that mentions "scheduling an event on Friday afternoon", you would want to fetch the existing events on Friday afternoon, and so set timeMin to 12:00PM that day and timeMax to 6:00pm that day.
+                DEFAULT BEHAVIOR: Keep the query broad when unsure, so as to provide as much context as possible.
+            """),
+            config_mods={"response_mime_type": "application/json"}
+        )
+    
+    # AI WORKFLOW 
+    async def event_list_ai_server(self, action):
 
+        current_time = datetime.now().isoformat() 
+        user_timezone = pytz.timezone(pytz.country_timezones('US')[0])
+        # Passing current local time and user's time zone into the prompt so that model has proper awareness
+
+        prompt = textwrap.dedent(f"""
+            {action}
+            Right now it is {current_time} in {user_timezone}
+        """)
+        # Generate response
+        response = self.model_init.model.generate_content(prompt)
+        return response
+    
+    def process_response(self, response):
+        try:
+            query = json.loads(response)
+            print("Query:", query)
+            events_result = self.service.events().list(
+                **query
+            ).execute()
+            events = events_result.get("items", [])
+            return events
+        except Exception as e:
+            print(textwrap.dedent(f"""
+                {e}
+                Unexpected response format: {response}
+            """))
+            return []
+
+    async def invoke(self, action):
+        response = (await self.event_list_ai_server(action)).text
+        return self.process_response(response)
+
+    # DETERMINISTIC WORKFLOW
     def _fetch_primary_timezone(self):
         """Fetch the primary calendar's timezone."""
         try:
@@ -179,15 +269,24 @@ class GcalScraper:
         # Return the formatted free times
         return formatted_free_times
 
-# Testing
-if __name__ == "__main__":
+
+async def main():
     # Instantiate the GoogleCalendarService
     calendar_service = GoogleCalendarService()
 
     # Instantiate the GcalScraper using the authenticated calendar service
     cal_scraper = GcalScraper(calendar_service)
+
+    events = await cal_scraper.invoke("Schedule me some time to do my Math hw this afternoon")
+    print("\nEvents:", events, "\n")
+
+    events = await cal_scraper.invoke("Delete all my events from the past 3 days")
+    print("\nEvents:", events, "\n")
+
+
     
-    # Get events on a specific date
+    # COMMENTED OUT FOR TESTING, BUT TOO MUCH PROCESSING FOR MAIN FUNCTION
+    """ # Get events on a specific date
     events = cal_scraper.get_events_on_date('2024-10-23')
     if events:
         for event in events:
@@ -219,4 +318,8 @@ if __name__ == "__main__":
         end_time = time_slot['end']
         print(f"Start: {start_time}")
         print(f"End: {end_time}")
-        print() 
+        print()  """
+
+# Testing
+if __name__ == "__main__":
+    asyncio.run(main())
